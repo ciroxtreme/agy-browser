@@ -125,3 +125,22 @@ git** — sudah ada di `.gitignore`. Jangan commit cookie/login siapa pun.
 - Screenshot menumpuk di `data/files/` — bersihkan manual kalau sudah
   banyak (tiap shot ~60–200 KB).
 - `type` cuma isi field + Enter; belum ada scroll/hover khusus.
+
+## Efisiensi (foto tidak menumpuk, halaman putih ketahuan)
+
+- **Rotasi otomatis:** tiap shot menyimpan PNG baru lalu menghapus
+  `browse-<waktu>.png` lama, menyisakan 20 terbaru (atur lewat
+  `BROWSE_KEEP=30`). File bernama lain (mis. `test-awal.png` atau
+  nama custom dari agent) tidak disentuh — itu file kerja agent,
+  bukan sampah otomatis.
+- **Mode teks saja:** `BROWSE_NO_PNG=1` — tidak menyimpan screenshot
+  sama sekali (buat tugas yang cuma butuh teks). Rotasi tetap jalan.
+- **Smart wait:** tidak ada lagi tidur buta 3 detik — script polling
+  sampai halaman punya isi (teks/gambar), max 10 detik. Halaman
+  lambat / JS-berat tidak kefoto putih.
+- **Peringatan halaman kosong:** kalau halaman tetap kosong setelah
+  tunggu max, output mencetak `PERINGATAN: halaman tampak kosong...`
+  supaya agent tahu itu belum muat / kena anti-bot — bukan halaman
+  beneran kosong. Jangan langsung percaya screenshot putih.
+- **Deteksi Cloudflare** diperluas: judul/teks/iframe challenge
+  (termasuk "Checking your browser", "Verify you are human").
