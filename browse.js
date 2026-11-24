@@ -39,9 +39,21 @@
 //     BROWSE_UA = User-Agent desktop sendiri (default: Chrome/128 Win).
 //     CFSOLVE_BIN / CFSOLVE_PROFILE / CFSOLVE_UA = lokasi cfsolve +
 //       profil fingerprint + UA-nya (default: jalur tele-console).
+//     BROWSE_KEEP = jumlah screenshot browse-*.png terbaru yang
+//       dipertahankan (default 20 — sisanya dihapus otomatis tiap shot).
+//     BROWSE_NO_PNG = '1' buat mode teks saja (tanpa screenshot).
+//
+// EFISIENSI (25 Nov 2026): script TIDAK tidur buta 3 detik —
+//   dia polling sampai halaman punya isi (teks/gambar), max 10 detik,
+//   jadi halaman lambat tidak kefoto putih. Kalau halaman tetap
+//   kosong, dicetak PERINGATAN (bukan diam-diam) supaya agent tahu
+//   itu belum muat / kena anti-bot, bukan halaman beneran kosong.
+//   Screenshot lama dirotasi otomatis (BROWSE_KEEP).
 //
 // KELUARAN ke stdout:
 //   TITLE: ... | URL: ... | PNG: <path relatif dari root>
+//   FOTO: ... (kalau ada file lama dibersihkan)
+//   PERINGATAN: ... (kalau halaman tampak kosong)
 //   ---TEKS--- lalu isi teks halaman (maks 8000 karakter pertama).
 //   Error ke stderr + exit 1.
 const fs = require('fs');
@@ -56,6 +68,10 @@ const ROOT = fs.existsSync(path.join(__dirname, 'package.json'))
 const FILES_DIR = path.join(ROOT, 'data', 'files');
 const VIEWPORT = { width: 1280, height: 720 };
 const MAX_TEKS = 8000;
+// Rotasi screenshot: sisakan KEEP_PNG file browse-*.png terbaru.
+const KEEP_PNG = Math.max(1, parseInt(process.env.BROWSE_KEEP || '20', 10) || 20);
+// Mode teks saja: jangan simpan screenshot (hemat disk + token).
+const NO_PNG = process.env.BROWSE_NO_PNG === '1';
 
 // cfsolve: bisa di-override lewat env pas pindah VPS (lihat README).
 const CFSOLVE_BIN = process.env.CFSOLVE_BIN || '/home/container/files/cfsolve-repo/target/release/challenge';
@@ -94,6 +110,66 @@ function namaPng() {
 function jalurPng(arg) {
   if (!arg) return path.join(FILES_DIR, namaPng());
   return path.isAbsolute(arg) ? arg : path.join(ROOT, arg);
+}
+
+function rapikanFoto() {
+  // Hapus screenshot browse-*.png lama, sisakan KEEP_PNG terbaru.
+  // (Agent rajin shot tiap aksi — tanpa ini data/files/ menumpuk.)
+  // File bernama lain (test-awal.png, hasil custom) tidak disentuh.
+  try {
+    const daftar = fs.readdirSync(FILES_DIR)
+      .filter((f) => /^browse-\d{8}-\d{6}\.png$/.test(f))
+      .map((f) => {
+        let t = 0;
+        try { t = fs.statSync(path.join(FILES_DIR, f)).mtimeMs; } catch (e) { /* abaikan */ }
+        return { f, t };
+      })
+      .sort((a, b) => b.t - a.t);
+    let dihapus = 0;
+    for (const item of daftar.slice(KEEP_PNG)) {
+      try { fs.unlinkSync(path.join(FILES_DIR, item.f)); dihapus++; } catch (e) { /* abaikan */ }
+    }
+    return { sisa: Math.min(daftar.length, KEEP_PNG), dihapus };
+  } catch (e) {
+    return { sisa: 0, dihapus: 0 };
+  }
+}
+
+async function bacaHalaman(page) {
+  // Baca keadaan halaman: judul + teks + jumlah gambar. "Kosong" =
+  // teks kurang dari 40 karakter DAN tidak ada gambar — itu yang
+  // bikin screenshot putih bengong (belum muat / kena anti-bot).
+  const judul = await page.title().catch(() => '');
+  const hasil = await page.evaluate(() => {
+    const body = document.body;
+    return {
+      teks: body ? body.innerText : '',
+      gambar: body ? body.querySelectorAll('img').length : 0,
+      adaIframeCf: !!document.querySelector('iframe[src*="challenges.cloudflare.com"], iframe[src*="cf-challenge"]'),
+    };
+  }).catch(() => ({ teks: '', gambar: 0, adaIframeCf: false }));
+  const teksBersih = (hasil.teks || '').replace(/\s+/g, ' ').trim();
+  return {
+    judul,
+    teks: hasil.teks || '',
+    teksBersih,
+    gambar: hasil.gambar,
+    adaIframeCf: hasil.adaIframeCf,
+    kosong: teksBersih.length < 40 && hasil.gambar === 0,
+  };
+}
+
+async function tungguIsi(page, maksMs) {
+  // Tunggu sampai halaman punya isi yang berarti, max maksMs.
+  // Menggantikan tidur buta 3 detik: halaman cepat langsung lanjut,
+  // halaman lambat / JS-berat dikasih waktu sampai benar-benar tampil.
+  const batas = Date.now() + (maksMs || 10000);
+  let keadaan = await bacaHalaman(page);
+  while (keadaan.kosong && Date.now() < batas) {
+    await page.waitForTimeout(1000);
+    keadaan = await bacaHalaman(page);
+  }
+  return keadaan;
 }
 
 async function main() {
@@ -182,16 +258,15 @@ async function main() {
 
     let page = await context.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(3000);
+    const awal = await tungguIsi(page, 10000);
 
-    let initialTitle = await page.title().catch(() => '');
-    let initialText = await page.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
+    const initialTitle = awal.judul;
+    const initialText = awal.teks;
 
-    // Deteksi Cloudflare Challenge otomatis
-    const isCloudflare = initialTitle.includes('Just a moment...') ||
-      initialTitle.includes('Attention Required') ||
-      initialText.includes('Performing security verification') ||
-      initialText.includes('challenges.cloudflare.com');
+    // Deteksi Cloudflare Challenge otomatis (judul + teks + iframe).
+    const isCloudflare = /just a moment|attention required|checking your browser|verify you are human|please wait/i.test(initialTitle) ||
+      /performing security verification|challenges\.cloudflare\.com|cf-challenge|checking if the site connection is secure|verify you are human/i.test(initialText) ||
+      awal.adaIframeCf;
 
     if (isCloudflare) {
       console.error('browse: Terdeteksi Cloudflare Challenge! Menjalankan cfsolve engine...');
@@ -226,7 +301,7 @@ async function main() {
         }]);
         page = await context.newPage();
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForTimeout(2000);
+        await tungguIsi(page, 10000);
       } else {
         console.error('browse: Peringatan: cfsolve tidak mengembalikan cf_clearance.');
       }
@@ -241,20 +316,35 @@ async function main() {
       await page.waitForTimeout(2000);
     }
 
-    const title = await page.title().catch(() => '');
+    const akhir = await bacaHalaman(page);
+    const title = akhir.judul;
     const finalUrl = page.url();
-    let teks = await page.evaluate(() => (document.body ? document.body.innerText : ''));
-    teks = (teks || '').replace(/\n{3,}/g, '\n\n').trim();
+    let teks = (akhir.teks || '').replace(/\n{3,}/g, '\n\n').trim();
     const dipotong = teks.length > MAX_TEKS;
     if (dipotong) teks = teks.slice(0, MAX_TEKS);
 
-    const pngPath = jalurPng(pngArg);
-    fs.mkdirSync(path.dirname(pngPath), { recursive: true });
-    await page.screenshot({ path: pngPath });
+    // Screenshot: lewati kalau mode teks saja; kalau tidak, simpan
+    // lalu rotasi file lama supaya data/files/ tidak menumpuk.
+    let barisPng;
+    if (NO_PNG) {
+      const rapih = rapikanFoto();
+      barisPng = '(tidak disimpan — BROWSE_NO_PNG=1)';
+      console.log('FOTO: dibersihkan ' + rapih.dihapus + ', sisa ' + rapih.sisa);
+    } else {
+      const pngPath = jalurPng(pngArg);
+      fs.mkdirSync(path.dirname(pngPath), { recursive: true });
+      await page.screenshot({ path: pngPath });
+      const rapih = rapikanFoto();
+      barisPng = path.relative(ROOT, pngPath);
+      if (rapih.dihapus > 0) console.log('FOTO: dibersihkan ' + rapih.dihapus + ' file lama, sisa ' + rapih.sisa);
+    }
 
     console.log('TITLE: ' + title);
     console.log('URL: ' + finalUrl);
-    console.log('PNG: ' + path.relative(ROOT, pngPath));
+    console.log('PNG: ' + barisPng);
+    if (akhir.kosong) {
+      console.log('PERINGATAN: halaman tampak kosong (teks ' + akhir.teksBersih.length + ' karakter, gambar ' + akhir.gambar + ') — mungkin belum selesai muat / kena anti-bot. Jangan anggap ini isi halaman; coba lagi atau cek manual.');
+    }
     if (dipotong) console.log('TEKS: (dipotong, 8000 karakter pertama)');
     console.log('---TEKS---');
     console.log(teks);
