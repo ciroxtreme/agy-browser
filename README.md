@@ -38,6 +38,16 @@ bash setup.sh
 Browser terpasang di `~/.cache/ms-playwright` (bukan di repo, hilang
 kalau container di-rebuild — install ulang pakai `setup.sh`).
 
+> **Mau semua perkakas sekaligus** (browser + cfsolve + curl_cffi +
+> pypasser, sekali sedot ke folder masing-masing seperti di VPS saat
+> ini)? Dari root project bot, satu perintah:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/ciroxtreme/agy-browser/main/restore-tools.sh -o restore-tools.sh && bash restore-tools.sh
+> ```
+>
+> Detailnya di `TOOLS.md`.
+
 ## Pakai
 
 ```bash
