@@ -14,6 +14,10 @@ Teruji live 24 Nov 2026: `shot example.com` + `click "Learn more"`
 - **`browse.js`** — script-nya. Perintah: `shot`, `click`, `type`.
 - **`setup.sh`** — installer satu perintah (lihat bawah).
 - **`package.json`** — dependensi cuma `playwright`.
+- **`TOOLS.md`** — peta semua perkakas agent (cfsolve, curl_cffi,
+  pypasser) + cara balikinnya pas pindah VPS.
+- **`restore-tools.sh`** — sekali jalan dari root project bot, balikin
+  semua perkakas dari nol (lihat `TOOLS.md`).
 
 ## Pasang di VPS baru
 
