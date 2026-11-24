@@ -1,0 +1,1 @@
+{"dependencies":{"playwright":"^1.65.1"},"description":"Browser visual otonom buat agent Antigravity: Playwright Chromium + cfsolve auto-bypass Cloudflare (shot/click/type + screenshot).","engines":{"node":">=18"},"main":"browse.js","name":"agy-browser","scripts":{"setup":"bash setup.sh","shot":"node browse.js shot"},"version":"1.0.0"}
