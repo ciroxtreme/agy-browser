@@ -4,6 +4,23 @@ Repo ini bukan cuma `browse.js`. Agent Antigravity di server punya satu
 set perkakas, dan semuanya harus bisa dibangun ulang dari nol di VPS
 baru — tanpa ngubek-ngubek server lama. Dokumen ini peta + resepnya.
 
+## Cara tercepat — sekali sedot
+
+Dari **root project bot** (folder yang berisi `package.json`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ciroxtreme/agy-browser/main/restore-tools.sh -o restore-tools.sh
+bash restore-tools.sh
+```
+
+Satu perintah itu saja: script-nya narik semua tool dari GitHub dan
+menaruh masing-masing di foldernya seperti di VPS saat ini —
+`tools/browse.js`, `files/cfsolve-repo/` (+ binary + profil),
+`tools/curl_cffi/`, `tools/pypasser-repo/`, Playwright + Chromium.
+Yang sudah ada dilewati, diakhiri smoke test `shot example.com`.
+Sisanya di dokumen ini adalah rincian per tool (buat referensi /
+kalau satu langkah perlu dijalankan manual).
+
 ## Peta: di mana tiap tool tinggal di server
 
 | Tool | Di server | Buat apa |
